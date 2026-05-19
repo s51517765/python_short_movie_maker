@@ -1,0 +1,36 @@
+# --- Python 共通 ---
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# --- PyInstaller (EXE化関連) ---
+# ビルド時の中間ファイルや成果物
+build/
+dist/
+*.spec
+*.exe
+
+# --- プロジェクト固有の一時ファイル ---
+# 動画生成中の中間素材
+temp_assets/
+temp_audio/
+*.jpeg
+*.jpg
+*.png
+*.bmp
+*.txt
+
+# --- 生成された動画ファイル ---
+# 毎回生成されるMP4を除外（管理したい場合は消してください）
+*.mp4
+
+# --- エディタ・OS関連 ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
