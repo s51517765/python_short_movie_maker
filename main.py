@@ -7,6 +7,8 @@
 
 # pyinstaller
 # pyinstaller --onefile   --collect-all numpy  --collect-all moviepy  --copy-metadata imageio  --hidden-import numpy._core._exceptions  main.py
+# pyinstaller --onefile --name "RocketReel" --icon "icon.ico" --collect-all numpy --collect-all moviepy --copy-metadata imageio --hidden-import numpy._core._exceptions main.py
+
 
 import os
 from gtts import gTTS
