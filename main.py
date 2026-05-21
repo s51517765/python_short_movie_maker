@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 from moviepy import (
     ImageClip,
     AudioFileClip,
+    VideoFileClip,
     CompositeVideoClip,
     CompositeAudioClip,
 )
@@ -116,7 +117,10 @@ for i, (img_path, size, text) in enumerate(raw_data):
     # サイズ指定を保存
     size_list.append(size)
 
-# --- 4. 同じ画像が続く場合の結合ロジック（修正版） ---
+# --- 判定用：サポートする拡張子 ---
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".avi", ".mkv")
+
+# --- 4. 同じ素材が続く場合の結合ロジック ---
 combined_bg_clips = []
 i = 0
 while i < len(scenes):
@@ -126,58 +130,89 @@ while i < len(scenes):
         total_duration += scenes[j]["duration"]
         j += 1
 
-    # 背景クリップの読み込み
-    bg = ImageClip(scenes[i]["img"]).with_duration(total_duration)
+    file_path = scenes[i]["img"]
+    ext = os.path.splitext(file_path)[1].lower()
 
-    # --- 安全なリサイズ計算 ---
-    w, h = bg.size
-    # ターゲットサイズに対して不足している倍率を計算（最小でも1ピクセル以上にする）
-    scale_w = VIDEO_SIZE[0] * ZOOM_RATIO / max(w, 1)
-    scale_h = VIDEO_SIZE[1] * ZOOM_RATIO / max(h, 1)
+    # --- 素材が静止画の場合 ---
+    if ext not in VIDEO_EXTENSIONS:
+        bg = ImageClip(scenes[i]["img"]).with_duration(total_duration)
 
-    if size_list[i].lower == "fit":
-        scale = min(scale_w, scale_h)
-    else:
-        scale = max(scale_w, scale_h)
-
-    # リサイズ実行
-    bg = bg.resized(scale)
-
-    # クロップ（端数が原因で0にならないよう、intで整数化して確実にサイズを固定）
-    bg = bg.cropped(
-        x_center=bg.w / 2,
-        y_center=bg.h / 2,
-        width=int(VIDEO_SIZE[0] * ZOOM_RATIO),
-        height=int(VIDEO_SIZE[1] * ZOOM_RATIO),
-    )
-
-    # ズーム効果
-    z_mode = len(combined_bg_clips) % 2 == 0
-    # t=0の時に1.0、t=maxの時に1/ZOOM_RATIOにすることで画面に収める
-    if z_mode:
-        z_func = lambda t: 1.0 + (ZOOM_RATIO - 1.0) * (t / total_duration)
-    else:
-        z_func = lambda t: ZOOM_RATIO - (ZOOM_RATIO - 1.0) * (t / total_duration)
-
-    # 最後にresized(z_func)を適用したあとも、確実に元のビデオサイズでクリップする
-    final_bg = (
-        bg.resized(z_func)
-        .with_position("center")
-        .with_start(scenes[i]["start"])
-        .cropped(
-            x_center=None,
-            y_center=None,  # 中心を維持
-            width=VIDEO_SIZE[0],
-            height=VIDEO_SIZE[1],
+        # 1. 基本サイズへのリサイズ
+        w, h = bg.size
+        scale_w = VIDEO_SIZE[0] * ZOOM_RATIO / max(w, 1)
+        scale_h = VIDEO_SIZE[1] * ZOOM_RATIO / max(h, 1)
+        scale = (
+            min(scale_w, scale_h)
+            if size_list[i].lower() == "fit"
+            else max(scale_w, scale_h)
         )
-    )
+        bg = bg.resized(scale)
 
+        # 2. クロップして少し大きめの素材を作る
+        bg = bg.cropped(
+            x_center=bg.w / 2,
+            y_center=bg.h / 2,
+            width=int(VIDEO_SIZE[0] * ZOOM_RATIO),
+            height=int(VIDEO_SIZE[1] * ZOOM_RATIO),
+        )
+
+        # 3. ズーム関数の定義
+        z_mode = len(combined_bg_clips) % 2 == 0
+        if z_mode:
+            z_func = lambda t: 1.0 + (ZOOM_RATIO - 1.0) * (t / total_duration)
+        else:
+            z_func = lambda t: ZOOM_RATIO - (ZOOM_RATIO - 1.0) * (t / total_duration)
+
+        # 4. ズームを適用した最終クリップを作成
+        # ここで直接 combined_bg_clips に入れる形にして上書きを防ぎます
+        final_bg = (
+            bg.resized(z_func)
+            .with_position("center")
+            .with_start(scenes[i]["start"])
+            .cropped(
+                x_center=VIDEO_SIZE[0] * ZOOM_RATIO / 2,
+                y_center=VIDEO_SIZE[1] * ZOOM_RATIO / 2,
+                width=VIDEO_SIZE[0],
+                height=VIDEO_SIZE[1],
+            )
+        )
+
+    # --- 素材が動画の場合 ---
+    else:
+        clip = VideoFileClip(file_path).without_audio()
+        clip = (
+            clip.with_duration(total_duration)
+            if clip.duration < total_duration
+            else clip.subclipped(0, total_duration)
+        )
+
+        w, h = clip.size
+        scale = max(VIDEO_SIZE[0] / w, VIDEO_SIZE[1] / h)
+        clip = clip.resized((int(w * scale), int(h * scale)))
+
+        final_bg = (
+            clip.cropped(
+                x_center=clip.w / 2,
+                y_center=clip.h / 2,
+                width=VIDEO_SIZE[0],
+                height=VIDEO_SIZE[1],
+            )
+            .with_position("center")
+            .with_start(scenes[i]["start"])
+        )
+
+    # ⚠️【重要】ここにあった final_bg = bg... の上書きコードは削除してください！
     combined_bg_clips.append(final_bg)
     i = j
+
 # --- 5. 合成と出力 ---
 video_elements = combined_bg_clips.copy()
 audio_elements = []
-
+print("--- クリップサイズ確認 ---")
+for i, clip in enumerate(video_elements):
+    print(f"Clip {i}: size={clip.size}, w={clip.w}, h={clip.h}")
+    if clip.w <= 0 or clip.h <= 0:
+        print(f"⚠️ エラー原因発見: Clip {i} のサイズが不正です。")
 for sc in scenes:
     # 各セリフのテロップを追加
     txt = (
