@@ -47,14 +47,13 @@ FONT_PATH = config.get("FONT_PATH", "C:\\Windows\\Fonts\\msjhbd.ttc")
 FONT_SIZE = int(config.get("FONT_SIZE", 10))
 FONT_COLOR = config.get("FONT_COLOR", "YELLOW")
 FONT_LINE = config.get("FONT_LINE", "BLACK")
-ZOOM_RATIO = float(config.get("ZOOM_RATIO", 1.15))
 TEMP_DIR = "temp_assets"
 POSITION_HIGHT = int(config.get("POSITION_HIGHT", 100))
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 
 print(
-    f"設定完了: 文字サイズ={FONT_SIZE}, 倍率={ZOOM_RATIO},テキスト位置={POSITION_HIGHT},\n       色={FONT_COLOR},文字縁取り色={FONT_LINE}"
+    f"設定完了: 文字サイズ={FONT_SIZE}, 倍率={ZOOM_RATIO},テキスト位置={POSITION_HIGHT},\n          色={FONT_COLOR},文字縁取り色={FONT_LINE}"
 )
 os.environ["IMAGEIO_FFMPEG_EXE"] = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -87,12 +86,13 @@ raw_data = []
 with open("subtitles.txt", "r", encoding="utf-8") as f:
     for line in f:
         if "," in line:
-            raw_data.append(line.strip().split(",", 1))
+            raw_data.append(line.split(",", 2))
 
 scenes = []
 current_total_time = 0
+size_list = []
 
-for i, (img_path, text) in enumerate(raw_data):
+for i, (img_path, size, text) in enumerate(raw_data):
     # 音声作成
     tts_path = os.path.join(TEMP_DIR, f"speech_{i}.mp3")
     gTTS(text=text, lang="ja").save(tts_path)
@@ -113,6 +113,8 @@ for i, (img_path, text) in enumerate(raw_data):
         }
     )
     current_total_time += duration
+    # サイズ指定を保存
+    size_list.append(size)
 
 # --- 4. 同じ画像が続く場合の結合ロジック（修正版） ---
 combined_bg_clips = []
@@ -132,7 +134,11 @@ while i < len(scenes):
     # ターゲットサイズに対して不足している倍率を計算（最小でも1ピクセル以上にする）
     scale_w = VIDEO_SIZE[0] * ZOOM_RATIO / max(w, 1)
     scale_h = VIDEO_SIZE[1] * ZOOM_RATIO / max(h, 1)
-    scale = max(scale_w, scale_h)
+
+    if size_list[i].lower == "fit":
+        scale = min(scale_w, scale_h)
+    else:
+        scale = max(scale_w, scale_h)
 
     # リサイズ実行
     bg = bg.resized(scale)
